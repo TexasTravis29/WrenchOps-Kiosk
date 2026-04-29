@@ -26,7 +26,7 @@ export default function Confirm() {
       customer_id: customer?.id || null,
       customer_name: customer ? `${customer.first_name} ${customer.last_name}` : null,
       phone: customer?.phone || null,
-      is_new_customer: false,
+      is_new_customer: customer?.is_new_customer || false,
       services: allServices,
       key_tag_number: keyTag || null,
       status: 'pending',
