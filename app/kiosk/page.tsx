@@ -1,45 +1,11 @@
 'use client'
+import Image from 'next/image'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useState, useEffect } from 'react'
-import { getSession, clearSession } from '../../lib/auth'
 
-export default function KioskStart() {
+export default function Home() {
+  const [pressed, setPressed] = useState(false)
   const router = useRouter()
-  const [pressed, setPressed] = useState<string | null>(null)
-
-  useEffect(() => {
-    const session = getSession()
-    if (!session || session.role !== 'kiosk') {
-      router.push('/')
-    }
-  }, [router])
-
-  const btn = (label: string, sub: string, key: string, route: string, emoji: string) => (
-    <button
-      onMouseDown={() => setPressed(key)}
-      onMouseUp={() => setPressed(null)}
-      onMouseLeave={() => setPressed(null)}
-      onTouchStart={() => setPressed(key)}
-      onTouchEnd={() => { setPressed(null); router.push(route) }}
-      onClick={() => router.push(route)}
-      style={{
-        width: '340px',
-        padding: '40px 32px',
-        borderRadius: '24px',
-        border: '0.5px solid #e4e4e7',
-        background: pressed === key ? 'rgba(224,59,31,0.08)' : '#ffffff',
-        color: '#18181b',
-        cursor: 'pointer',
-        transform: pressed === key ? 'scale(0.96)' : 'scale(1)',
-        transition: 'all 0.15s ease',
-        textAlign: 'center',
-      }}
-    >
-      <div style={{ fontSize: '3rem', marginBottom: '12px' }}>{emoji}</div>
-      <div style={{ fontSize: '1.6rem', fontWeight: '800', marginBottom: '8px' }}>{label}</div>
-      <div style={{ fontSize: '1rem', color: '#71717a' }}>{sub}</div>
-    </button>
-  )
 
   return (
     <div style={{
@@ -53,33 +19,71 @@ export default function KioskStart() {
       flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
-      fontFamily: 'sans-serif',
     }}>
-      <h1 style={{ color: '#18181b', fontSize: '2.4rem', fontWeight: '800', marginBottom: '8px' }}>
-        Have you been here before?
+
+      <Image
+        src="/wrenchops_logo_trans.png"
+        alt="WrenchOps"
+        width={500}
+        height={300}
+        priority
+        style={{ marginBottom: '60px' }}
+      />
+
+      <h1 style={{
+        fontSize: '3.5rem',
+        fontWeight: '800',
+        color: 'black',
+        marginBottom: '50px',
+        letterSpacing: '-1px',
+      }}>
+        Welcome to Our Shop
       </h1>
-      <p style={{ color: '#71717a', fontSize: '1.2rem', marginBottom: '40px' }}>
-        Select one to get started
+
+      <p style={{
+        fontSize: '1.3rem',
+        color: '#a0aec0',
+        marginBottom: '30px',
+      }}>
+        Tap below to get started
       </p>
 
-      <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap', justifyContent: 'center' }}>
-        {btn('Returning Customer', "I've visited before", 'returning', '/kiosk/returning', '👋')}
-        {btn('New Customer', 'First time here', 'new', '/kiosk/new', '✨')}
-      </div>
-
       <button
-        onClick={() => { clearSession(); router.push('/') }}
+        onMouseDown={() => setPressed(true)}
+        onMouseUp={() => setPressed(false)}
+        onMouseLeave={() => setPressed(false)}
+        onTouchStart={() => setPressed(true)}
+        onTouchEnd={() => { setPressed(false); router.push('/kiosk') }}
+        onClick={() => router.push('/kiosk')}
         style={{
-          marginTop: '48px',
-          background: 'none',
+          padding: '28px 80px',
+          borderRadius: '20px',
+          fontSize: '2rem',
+          fontWeight: '800',
+          color: 'white',
           border: 'none',
-          color: '#a1a1aa',
-          fontSize: '1rem',
           cursor: 'pointer',
+          background: 'linear-gradient(135deg, #e03b1f, #c42d0f)',
+          boxShadow: pressed
+            ? '0 5px 20px rgba(224, 59, 31, 0.3)'
+            : '0 20px 60px rgba(224, 59, 31, 0.4)',
+          transform: pressed ? 'scale(0.96) translateY(4px)' : 'scale(1) translateY(0px)',
+          transition: 'all 0.15s ease',
+          letterSpacing: '1px',
         }}
       >
-        ← Sign Out
+        Check In
       </button>
+
+      <p style={{
+        position: 'absolute',
+        bottom: '24px',
+        fontSize: '0.85rem',
+        color: '#4a5568',
+      }}>
+        Powered by WrenchOps
+      </p>
+
     </div>
   )
 }
