@@ -1,6 +1,6 @@
 'use client'
 import { useRouter } from 'next/navigation'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../../../lib/supabase'
 
 export default function Confirm() {
@@ -11,6 +11,12 @@ export default function Confirm() {
   const [services, setServices] = useState<any[]>([])
   const [upsells, setUpsells] = useState<any[]>([])
   const [keyTag, setKeyTag] = useState('')
+  const [hasSigned, setHasSigned] = useState(false)
+
+  // Signature canvas refs
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const isDrawing = useRef(false)
+  const lastPos = useRef<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
     setCustomer(JSON.parse(localStorage.getItem('checkin_customer') || 'null'))
@@ -19,8 +25,85 @@ export default function Confirm() {
     setKeyTag(localStorage.getItem('checkin_keytag') || '')
   }, [])
 
+  // ── Canvas setup ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.strokeStyle = '#18181b'
+    ctx.lineWidth = 2.5
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+  }, [])
+
+  const getPos = (e: React.MouseEvent | React.TouchEvent, canvas: HTMLCanvasElement) => {
+    const rect = canvas.getBoundingClientRect()
+    const scaleX = canvas.width / rect.width
+    const scaleY = canvas.height / rect.height
+    if ('touches' in e) {
+      const touch = e.touches[0]
+      return {
+        x: (touch.clientX - rect.left) * scaleX,
+        y: (touch.clientY - rect.top) * scaleY,
+      }
+    }
+    return {
+      x: ((e as React.MouseEvent).clientX - rect.left) * scaleX,
+      y: ((e as React.MouseEvent).clientY - rect.top) * scaleY,
+    }
+  }
+
+  const startDraw = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault()
+    const canvas = canvasRef.current
+    if (!canvas) return
+    isDrawing.current = true
+    lastPos.current = getPos(e, canvas)
+  }
+
+  const draw = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault()
+    if (!isDrawing.current) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    const pos = getPos(e, canvas)
+    ctx.beginPath()
+    ctx.moveTo(lastPos.current!.x, lastPos.current!.y)
+    ctx.lineTo(pos.x, pos.y)
+    ctx.stroke()
+    lastPos.current = pos
+    setHasSigned(true)
+  }
+
+  const endDraw = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault()
+    isDrawing.current = false
+    lastPos.current = null
+  }
+
+  const clearSignature = () => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    setHasSigned(false)
+  }
+
+  // ── Submit ────────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
+    if (!hasSigned) return
     setSubmitting(true)
+
+    const canvas = canvasRef.current
+    const signatureData = canvas ? canvas.toDataURL('image/png') : null
+
     const allServices = [...services, ...upsells]
     await supabase.from('checkins').insert({
       customer_id: customer?.id || null,
@@ -30,9 +113,9 @@ export default function Confirm() {
       services: allServices,
       key_tag_number: keyTag || null,
       status: 'pending',
+      signature: signatureData,
     })
 
-    // Clear localStorage
     localStorage.removeItem('checkin_customer')
     localStorage.removeItem('checkin_services')
     localStorage.removeItem('checkin_upsells')
@@ -40,11 +123,10 @@ export default function Confirm() {
 
     setSubmitting(false)
     setDone(true)
-
-    // Return to welcome screen after 5 seconds
     setTimeout(() => router.push('/'), 5000)
   }
 
+  // ── Done screen ───────────────────────────────────────────────────────────────
   if (done) {
     return (
       <div style={{
@@ -57,10 +139,7 @@ export default function Confirm() {
         justifyContent: 'center',
         fontFamily: 'sans-serif',
       }}>
-        <div style={{
-          fontSize: '5rem',
-          marginBottom: '24px',
-        }}>✅</div>
+        <div style={{ fontSize: '5rem', marginBottom: '24px' }}>✅</div>
         <h1 style={{ color: '#18181b', fontSize: '2.8rem', fontWeight: '800', marginBottom: '12px' }}>
           You're checked in!
         </h1>
@@ -74,6 +153,7 @@ export default function Confirm() {
     )
   }
 
+  // ── Main confirm screen ───────────────────────────────────────────────────────
   return (
     <div style={{
       position: 'fixed',
@@ -82,7 +162,7 @@ export default function Confirm() {
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      justifyContent: 'center',
+      justifyContent: 'flex-start',
       fontFamily: 'sans-serif',
       padding: '48px 40px',
       overflowY: 'auto',
@@ -94,6 +174,7 @@ export default function Confirm() {
         Please review and confirm
       </p>
 
+      {/* ── Summary card ── */}
       <div style={{
         width: '100%',
         maxWidth: '560px',
@@ -149,23 +230,124 @@ export default function Confirm() {
         </div>
       </div>
 
+      {/* ── Signature pad ── */}
+      <div style={{
+        width: '100%',
+        maxWidth: '560px',
+        background: '#ffffff',
+        borderRadius: '20px',
+        border: '0.5px solid #e4e4e7',
+        padding: '28px',
+        marginBottom: '32px',
+      }}>
+        {/* Authorization text */}
+        <p style={{
+          fontSize: '0.95rem',
+          color: '#52525b',
+          lineHeight: '1.6',
+          margin: '0 0 20px',
+          textAlign: 'center',
+        }}>
+          By signing, you affirm that you have authority over this vehicle and authorize us to perform services on the vehicle.
+        </p>
+
+        {/* Signature label + clear button */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+          <p style={{ fontSize: '0.8rem', fontWeight: '700', color: '#a1a1aa', letterSpacing: '0.5px', margin: 0 }}>
+            CUSTOMER SIGNATURE
+          </p>
+          {hasSigned && (
+            <button
+              onClick={clearSignature}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#a1a1aa',
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+                padding: '4px 8px',
+                borderRadius: '6px',
+              }}
+            >
+              ✕ Clear
+            </button>
+          )}
+        </div>
+
+        {/* Canvas */}
+        <div style={{
+          borderRadius: '12px',
+          border: hasSigned ? '1.5px solid #e4e4e7' : '1.5px dashed #d4d4d8',
+          overflow: 'hidden',
+          background: '#ffffff',
+          position: 'relative',
+        }}>
+          <canvas
+            ref={canvasRef}
+            width={520}
+            height={180}
+            style={{ display: 'block', width: '100%', height: '180px', touchAction: 'none', cursor: 'crosshair' }}
+            onMouseDown={startDraw}
+            onMouseMove={draw}
+            onMouseUp={endDraw}
+            onMouseLeave={endDraw}
+            onTouchStart={startDraw}
+            onTouchMove={draw}
+            onTouchEnd={endDraw}
+          />
+          {/* Placeholder hint */}
+          {!hasSigned && (
+            <div style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              pointerEvents: 'none',
+            }}>
+              <p style={{ color: '#d4d4d8', fontSize: '1rem', fontWeight: '500', margin: 0 }}>
+                ✍️ Sign here
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Signature line decoration */}
+        <div style={{
+          marginTop: '10px',
+          borderTop: '1.5px solid #e4e4e7',
+          paddingTop: '6px',
+        }}>
+          <p style={{ fontSize: '0.75rem', color: '#a1a1aa', margin: 0, textAlign: 'center' }}>
+            
+          </p>
+        </div>
+      </div>
+
+      {/* ── Confirm button ── */}
       <button
         onClick={handleSubmit}
-        disabled={submitting}
+        disabled={submitting || !hasSigned}
         style={{
           padding: '20px 60px',
           borderRadius: '16px',
-          background: submitting ? '#e4e4e7' : '#e03b1f',
-          color: submitting ? '#a1a1aa' : 'white',
+          background: submitting || !hasSigned ? '#e4e4e7' : '#e03b1f',
+          color: submitting || !hasSigned ? '#a1a1aa' : 'white',
           border: 'none',
           fontSize: '1.3rem',
           fontWeight: '800',
-          cursor: submitting ? 'not-allowed' : 'pointer',
+          cursor: submitting || !hasSigned ? 'not-allowed' : 'pointer',
           transition: 'all 0.15s ease',
         }}
       >
         {submitting ? 'Submitting...' : 'Confirm Check-In ✓'}
       </button>
+
+      {!hasSigned && (
+        <p style={{ color: '#a1a1aa', fontSize: '0.9rem', marginTop: '12px' }}>
+          Please sign above to continue
+        </p>
+      )}
 
       <button
         onClick={() => router.push('/kiosk/keytag')}

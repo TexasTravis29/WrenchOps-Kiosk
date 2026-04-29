@@ -55,6 +55,27 @@ export default function KioskStart() {
       justifyContent: 'center',
       fontFamily: 'sans-serif',
     }}>
+
+      {/* Sign Out — top right, subtle */}
+      <button
+        onClick={() => { clearSession(); router.push('/') }}
+        style={{
+          position: 'absolute',
+          top: '20px',
+          right: '24px',
+          background: 'none',
+          border: '0.5px solid #e4e4e7',
+          color: '#a1a1aa',
+          fontSize: '0.85rem',
+          fontWeight: '600',
+          cursor: 'pointer',
+          padding: '8px 16px',
+          borderRadius: '10px',
+        }}
+      >
+        Sign Out
+      </button>
+
       <h1 style={{ color: '#18181b', fontSize: '2.4rem', fontWeight: '800', marginBottom: '8px' }}>
         Have you been here before?
       </h1>
@@ -67,8 +88,9 @@ export default function KioskStart() {
         {btn('New Customer', 'First time here', 'new', '/kiosk/new', '✨')}
       </div>
 
+      {/* Back button */}
       <button
-        onClick={() => { clearSession(); router.push('/') }}
+        onClick={() => router.push('/kiosk')}
         style={{
           marginTop: '48px',
           background: 'none',
@@ -78,8 +100,9 @@ export default function KioskStart() {
           cursor: 'pointer',
         }}
       >
-        ← Sign Out
+        ← Back
       </button>
+
     </div>
   )
 }
