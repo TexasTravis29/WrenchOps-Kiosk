@@ -1,10 +1,11 @@
 'use client'
-
 import Image from 'next/image'
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 
 export default function Home() {
   const [pressed, setPressed] = useState(false)
+  const router = useRouter()
 
   return (
     <div style={{
@@ -13,29 +14,27 @@ export default function Home() {
       left: 0,
       right: 0,
       bottom: 0,
-      background: 'linear-gradient(135deg, #2d3748 0%, #3d4f63 100%)',
+      background: '#f4f4f5',
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
     }}>
-      
-      {/* Logo */}
+
       <Image
         src="/wrenchops_logo_trans.png"
         alt="WrenchOps"
-        width={420}
-        height={200}
+        width={500}
+        height={300}
         priority
-        style={{ marginBottom: '40px' }}
+        style={{ marginBottom: '60px' }}
       />
 
-      {/* Welcome Text */}
       <h1 style={{
         fontSize: '3.5rem',
         fontWeight: '800',
-        color: 'white',
-        marginBottom: '12px',
+        color: 'black',
+        marginBottom: '50px',
         letterSpacing: '-1px',
       }}>
         Welcome to Our Shop
@@ -44,18 +43,18 @@ export default function Home() {
       <p style={{
         fontSize: '1.3rem',
         color: '#a0aec0',
-        marginBottom: '60px',
+        marginBottom: '30px',
       }}>
-        Tap below to get started with your check-in
+        Tap below to get started
       </p>
 
-      {/* Main Button */}
       <button
         onMouseDown={() => setPressed(true)}
         onMouseUp={() => setPressed(false)}
         onMouseLeave={() => setPressed(false)}
         onTouchStart={() => setPressed(true)}
-        onTouchEnd={() => setPressed(false)}
+        onTouchEnd={() => { setPressed(false); router.push('/kiosk') }}
+        onClick={() => router.push('/kiosk')}
         style={{
           padding: '28px 80px',
           borderRadius: '20px',
@@ -76,7 +75,6 @@ export default function Home() {
         Check In
       </button>
 
-      {/* Footer */}
       <p style={{
         position: 'absolute',
         bottom: '24px',
