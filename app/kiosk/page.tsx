@@ -53,8 +53,8 @@ export default function Home() {
         onMouseUp={() => setPressed(false)}
         onMouseLeave={() => setPressed(false)}
         onTouchStart={() => setPressed(true)}
-        onTouchEnd={() => { setPressed(false); router.push('/kiosk') }}
-        onClick={() => router.push('/kiosk')}
+        onTouchEnd={() => { setPressed(false); router.push('/kiosk/checkin') }}
+        onClick={() => router.push('/kiosk/checkin')}
         style={{
           padding: '28px 80px',
           borderRadius: '20px',
