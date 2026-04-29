@@ -2,6 +2,7 @@
 import { useRouter } from 'next/navigation'
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../../../lib/supabase'
+import { getSession, clearSession } from '../../../lib/auth'
 
 type Checkin = {
   id: string
@@ -45,10 +46,11 @@ export default function StaffDashboard() {
   }, [filter])
 
   useEffect(() => {
-    if (localStorage.getItem('staff_auth') !== 'true') {
-      router.push('/staff')
-      return
-    }
+    const session = getSession()
+        if (!session || session.role !== 'staff') {
+            router.push('/')
+        return
+}
     load()
     const interval = setInterval(load, 30000)
     return () => clearInterval(interval)
@@ -113,7 +115,7 @@ export default function StaffDashboard() {
             ↻ Refresh
           </button>
           <button
-            onClick={() => { localStorage.removeItem('staff_auth'); router.push('/staff') }}
+            onClick={() => { clearSession(); router.push('/') }}
             style={{
               padding: '8px 16px',
               borderRadius: '8px',

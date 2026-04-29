@@ -2,6 +2,7 @@
 import { useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import { supabase } from '../../../lib/supabase'
+import { getSession, clearSession } from '../../../lib/auth'
 
 type Service = {
   id: string
@@ -38,10 +39,11 @@ export default function AdminDashboard() {
   })
 
   useEffect(() => {
-    if (localStorage.getItem('admin_auth') !== 'true') {
-      router.push('/admin')
-      return
-    }
+    const session = getSession()
+        if (!session || (session.role !== 'admin' && session.role !== 'superadmin')) {
+        router.push('/')
+    return
+}
     loadAll()
   }, [router])
 
@@ -131,7 +133,7 @@ export default function AdminDashboard() {
             Staff View
           </button>
           <button
-            onClick={() => { localStorage.removeItem('admin_auth'); router.push('/admin') }}
+            onClick={() => { clearSession(); router.push('/') }}
             style={{ background: 'none', border: 'none', color: '#a1a1aa', fontSize: '0.9rem', cursor: 'pointer' }}
           >
             Sign out

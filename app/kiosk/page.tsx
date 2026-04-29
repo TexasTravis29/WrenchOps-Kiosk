@@ -1,10 +1,18 @@
 'use client'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { getSession, clearSession } from '../../lib/auth'
 
 export default function KioskStart() {
   const router = useRouter()
   const [pressed, setPressed] = useState<string | null>(null)
+
+  useEffect(() => {
+    const session = getSession()
+    if (!session || session.role !== 'kiosk') {
+      router.push('/')
+    }
+  }, [router])
 
   const btn = (label: string, sub: string, key: string, route: string, emoji: string) => (
     <button
@@ -60,7 +68,7 @@ export default function KioskStart() {
       </div>
 
       <button
-        onClick={() => router.push('/')}
+        onClick={() => { clearSession(); router.push('/') }}
         style={{
           marginTop: '48px',
           background: 'none',
@@ -70,7 +78,7 @@ export default function KioskStart() {
           cursor: 'pointer',
         }}
       >
-        ← Back
+        ← Sign Out
       </button>
     </div>
   )
