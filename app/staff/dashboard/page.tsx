@@ -14,6 +14,7 @@ type Checkin = {
   status: string
   created_at: string
   staff_notes: string
+  signature?: string
 }
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
@@ -29,6 +30,7 @@ export default function StaffDashboard() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [expandedSig, setExpandedSig] = useState<string | null>(null)
   const [notes, setNotes] = useState<Record<string, string>>({})
 
   const knownIdsRef = useRef<Set<string>>(new Set())
@@ -51,14 +53,12 @@ export default function StaffDashboard() {
         osc.stop(ctx.currentTime + start + duration)
       }
 
-      // Cha — lower strike
       playTone(987, 0, 0.18, 0.4)
       playTone(1318, 0, 0.18, 0.3)
-      // Ching — higher ring
       playTone(1760, 0.12, 0.5, 0.35)
       playTone(2093, 0.12, 0.5, 0.25)
     } catch (e) {
-      // AudioContext blocked (no user interaction yet) — silent fail
+      // AudioContext blocked — silent fail
     }
   }
 
@@ -74,7 +74,6 @@ export default function StaffDashboard() {
     const { data } = await query
     const fetched = data || []
 
-    // Detect new pending checkins after first load
     if (isFirstLoadRef.current) {
       fetched.forEach(c => knownIdsRef.current.add(c.id))
       isFirstLoadRef.current = false
@@ -147,21 +146,7 @@ export default function StaffDashboard() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <button
-            onClick={load}
-            style={{
-              padding: '8px 16px',
-              borderRadius: '8px',
-              border: '0.5px solid #e4e4e7',
-              background: '#ffffff',
-              color: '#18181b',
-              fontSize: '0.9rem',
-              cursor: 'pointer',
-              fontWeight: '600',
-            }}
-          >
-            ↻ Refresh
-          </button>
+
           <button
             onClick={() => { clearSession(); router.push('/') }}
             style={{
@@ -213,11 +198,7 @@ export default function StaffDashboard() {
         {loading ? (
           <p style={{ color: '#71717a' }}>Loading...</p>
         ) : checkins.length === 0 ? (
-          <div style={{
-            textAlign: 'center',
-            padding: '60px',
-            color: '#a1a1aa',
-          }}>
+          <div style={{ textAlign: 'center', padding: '60px', color: '#a1a1aa' }}>
             <div style={{ fontSize: '3rem', marginBottom: '16px' }}>📋</div>
             <p style={{ fontSize: '1.1rem' }}>No check-ins yet</p>
           </div>
@@ -226,6 +207,7 @@ export default function StaffDashboard() {
             {checkins.map(c => {
               const colors = STATUS_COLORS[c.status] || STATUS_COLORS.pending
               const isExpanded = expanded === c.id
+              const isSigExpanded = expandedSig === c.id
               return (
                 <div
                   key={c.id}
@@ -314,6 +296,7 @@ export default function StaffDashboard() {
                       padding: '20px 24px',
                       background: '#fafafa',
                     }}>
+
                       {/* Services detail */}
                       <p style={{ fontSize: '0.8rem', fontWeight: '700', color: '#a1a1aa', marginBottom: '8px', letterSpacing: '0.5px' }}>
                         SERVICES
@@ -326,6 +309,44 @@ export default function StaffDashboard() {
                           </div>
                         ))}
                       </div>
+
+                      {/* Signature */}
+                      {c.signature && (
+                        <div style={{ marginBottom: '16px' }}>
+                          <button
+                            onClick={e => {
+                              e.stopPropagation()
+                              setExpandedSig(isSigExpanded ? null : c.id)
+                            }}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: '#71717a',
+                              fontSize: '0.8rem',
+                              fontWeight: '700',
+                              cursor: 'pointer',
+                              padding: '0',
+                              letterSpacing: '0.5px',
+                            }}
+                          >
+                            {isSigExpanded ? '▲ HIDE SIGNATURE' : '▼ SHOW SIGNATURE'}
+                          </button>
+                          {isSigExpanded && (
+                            <img
+                              src={c.signature}
+                              alt="Customer signature"
+                              style={{
+                                display: 'block',
+                                marginTop: '10px',
+                                border: '0.5px solid #e4e4e7',
+                                borderRadius: '8px',
+                                maxWidth: '300px',
+                                background: '#fff',
+                              }}
+                            />
+                          )}
+                        </div>
+                      )}
 
                       {/* Staff notes */}
                       <p style={{ fontSize: '0.8rem', fontWeight: '700', color: '#a1a1aa', marginBottom: '8px', letterSpacing: '0.5px' }}>

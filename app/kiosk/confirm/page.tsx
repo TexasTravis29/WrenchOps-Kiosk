@@ -96,7 +96,6 @@ export default function Confirm() {
     setHasSigned(false)
   }
 
-  // ── Submit ────────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     if (!hasSigned) return
     setSubmitting(true)
@@ -104,8 +103,12 @@ export default function Confirm() {
     const canvas = canvasRef.current
     const signatureData = canvas ? canvas.toDataURL('image/png') : null
 
+    const session = JSON.parse(localStorage.getItem('wrenchops_user') || 'null')
+    const shopId = session?.shop_id || null
+
     const allServices = [...services, ...upsells]
-    await supabase.from('checkins').insert({
+    const { error } = await supabase.from('checkins').insert({
+      shop_id: shopId,
       customer_id: customer?.id || null,
       customer_name: customer ? `${customer.first_name} ${customer.last_name}` : null,
       phone: customer?.phone || null,
@@ -115,6 +118,12 @@ export default function Confirm() {
       status: 'pending',
       signature: signatureData,
     })
+
+    if (error) {
+      console.error('Checkin insert failed:', JSON.stringify(error), error.message, error.details, error.hint, error.code)
+      setSubmitting(false)
+      return
+    }
 
     localStorage.removeItem('checkin_customer')
     localStorage.removeItem('checkin_services')
@@ -319,7 +328,7 @@ export default function Confirm() {
           paddingTop: '6px',
         }}>
           <p style={{ fontSize: '0.75rem', color: '#a1a1aa', margin: 0, textAlign: 'center' }}>
-            
+
           </p>
         </div>
       </div>
