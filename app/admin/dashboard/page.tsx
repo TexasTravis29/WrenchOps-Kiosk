@@ -1,6 +1,6 @@
 'use client'
 import { useRouter } from 'next/navigation'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { getSession, clearSession } from '../../../lib/auth'
 
@@ -23,12 +23,19 @@ type ShopUser = {
 
 type Customer = {
   id: string
+  shop_id: string
   first_name: string
   last_name: string
   phone: string
   email: string
   is_active: boolean
-  tekmetric_id: string
+}
+
+type CsvPreviewRow = {
+  first_name: string
+  last_name: string
+  phone: string
+  email: string
 }
 
 export default function AdminDashboard() {
@@ -37,7 +44,8 @@ export default function AdminDashboard() {
   const [services, setServices] = useState<Service[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [customerSearch, setCustomerSearch] = useState('')
-  const [settings, setSettings] = useState<Record<string, string>>({})
+  const [customerSearching, setCustomerSearching] = useState(false)
+  const [lastImport, setLastImport] = useState<{ filename: string; date: string; count: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [shopUsers, setShopUsers] = useState<ShopUser[]>([])
   const [userEdits, setUserEdits] = useState<Record<string, { name: string; password: string }>>({})
@@ -46,9 +54,15 @@ export default function AdminDashboard() {
   const [newService, setNewService] = useState({
     name: '', description: '', price_display: '', is_upsell: false, sort_order: 0
   })
-
   const [editingService, setEditingService] = useState<string | null>(null)
-  const [serviceEdits, setServiceEdits] = useState<Record<string, { name: string; description: string; price_display: string; sort_order: number }>>({});
+  const [serviceEdits, setServiceEdits] = useState<Record<string, { name: string; description: string; price_display: string; sort_order: number }>>({})
+
+  // CSV state
+  const [csvPreview, setCsvPreview] = useState<CsvPreviewRow[]>([])
+  const [csvError, setCsvError] = useState('')
+  const [csvImporting, setCsvImporting] = useState(false)
+  const [csvSuccess, setCsvSuccess] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const session = getSession()
@@ -62,17 +76,15 @@ export default function AdminDashboard() {
   const loadAll = async () => {
     setLoading(true)
     const session = getSession()
-    const [{ data: s }, { data: c }, { data: st }, { data: u }] = await Promise.all([
+    const [{ data: s }, { data: st }, { data: u }] = await Promise.all([
       supabase.from('services').select('*').order('sort_order'),
-      supabase.from('customers').select('*').order('last_name').limit(100),
       supabase.from('settings').select('*'),
       supabase.from('users').select('id, name, password, role').eq('shop_id', session!.shop_id).in('role', ['kiosk', 'staff']),
     ])
     setServices(s || [])
-    setCustomers(c || [])
     const settingsMap: Record<string, string> = {}
     st?.forEach(row => { settingsMap[row.key] = row.value })
-    setSettings(settingsMap)
+    setLastImport(settingsMap['last_csv_import'] ? JSON.parse(settingsMap['last_csv_import']) : null)
     const users = u || []
     setShopUsers(users)
     const edits: Record<string, { name: string; password: string }> = {}
@@ -82,12 +94,21 @@ export default function AdminDashboard() {
   }
 
   const loadCustomers = async (search: string) => {
-    const query = supabase.from('customers').select('*').order('last_name').limit(100)
-    if (search.length > 1) {
-      query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,phone.ilike.%${search}%`)
+    if (search.length < 2) {
+      setCustomers([])
+      return
     }
-    const { data } = await query
+    setCustomerSearching(true)
+    const session = getSession()
+    const { data } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('shop_id', session!.shop_id)
+      .or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,phone.ilike.%${search}%`)
+      .order('last_name')
+      .limit(50)
     setCustomers(data || [])
+    setCustomerSearching(false)
   }
 
   const toggleService = async (id: string, is_active: boolean) => {
@@ -105,11 +126,6 @@ export default function AdminDashboard() {
     if (!newService.name.trim()) return
     await supabase.from('services').insert({ ...newService, is_active: true })
     setNewService({ name: '', description: '', price_display: '', is_upsell: false, sort_order: 0 })
-    loadAll()
-  }
-
-  const toggleCustomer = async (id: string, is_active: boolean) => {
-    await supabase.from('customers').update({ is_active }).eq('id', id)
     loadAll()
   }
 
@@ -143,6 +159,106 @@ export default function AdminDashboard() {
     loadAll()
   }
 
+  const handleCsvFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setCsvError('')
+    setCsvPreview([])
+    setCsvSuccess(false)
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (evt) => {
+      const text = evt.target?.result as string
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+      if (lines.length < 2) {
+        setCsvError('CSV appears to be empty or has no data rows.')
+        return
+      }
+
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/[^a-z_]/g, ''))
+      const required = ['first_name', 'last_name', 'phone']
+      const missing = required.filter(r => !headers.includes(r))
+      if (missing.length > 0) {
+        setCsvError(`Missing required columns: ${missing.join(', ')}. See the column guide above.`)
+        return
+      }
+
+      const rows: CsvPreviewRow[] = []
+      for (let i = 1; i < lines.length; i++) {
+        const vals = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''))
+        const row: Record<string, string> = {}
+        headers.forEach((h, idx) => { row[h] = vals[idx] || '' })
+        if (!row.first_name && !row.last_name && !row.phone) continue
+        rows.push({
+          first_name: row.first_name || '',
+          last_name: row.last_name || '',
+          phone: row.phone || '',
+          email: row.email || '',
+        })
+      }
+
+      if (rows.length === 0) {
+        setCsvError('No valid rows found in CSV.')
+        return
+      }
+
+      setCsvPreview(rows)
+    }
+    reader.readAsText(file)
+  }
+
+  const importCsv = async () => {
+    if (csvPreview.length === 0) return
+    setCsvImporting(true)
+    setCsvError('')
+    const session = getSession()
+    const shop_id = session!.shop_id
+
+    const { error: deleteError } = await supabase.from('customers').delete().eq('shop_id', shop_id)
+    if (deleteError) {
+      setCsvError('Failed to clear existing customers: ' + deleteError.message)
+      setCsvImporting(false)
+      return
+    }
+
+    const rows = csvPreview.map(r => ({
+      shop_id,
+      first_name: r.first_name,
+      last_name: r.last_name,
+      phone: r.phone,
+      email: r.email,
+      is_active: true,
+    }))
+
+    const { error: insertError } = await supabase.from('customers').insert(rows)
+    if (insertError) {
+      setCsvError('Import failed: ' + insertError.message)
+      setCsvImporting(false)
+      return
+    }
+
+    // Save last import metadata
+    const importMeta = JSON.stringify({
+      filename: fileInputRef.current?.files?.[0]?.name || 'unknown',
+      date: new Date().toISOString(),
+      count: csvPreview.length,
+    })
+    await supabase.from('settings').upsert({ key: 'last_csv_import', value: importMeta })
+
+    setCsvImporting(false)
+    setCsvSuccess(true)
+    setCsvPreview([])
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    loadAll()
+  }
+
+  const cancelCsv = () => {
+    setCsvPreview([])
+    setCsvError('')
+    setCsvSuccess(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   const inputStyle = {
     padding: '10px 14px',
     borderRadius: '8px',
@@ -154,9 +270,6 @@ export default function AdminDashboard() {
   }
 
   const tabs = ['services', 'customers', 'settings'] as const
-
-  // suppress unused warning
-  void settings
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#f4f4f5', fontFamily: 'sans-serif' }}>
@@ -173,12 +286,7 @@ export default function AdminDashboard() {
           WrenchOps Admin
         </h1>
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-          <button
-            onClick={() => router.push('/staff/dashboard')}
-            style={{ background: 'none', border: 'none', color: '#a1a1aa', fontSize: '0.9rem', cursor: 'pointer' }}
-          >
-            Staff View
-          </button>
+          
           <button
             onClick={() => { clearSession(); router.push('/') }}
             style={{ background: 'none', border: 'none', color: '#a1a1aa', fontSize: '0.9rem', cursor: 'pointer' }}
@@ -310,7 +418,6 @@ export default function AdminDashboard() {
                         }}
                       >
                         {isEditing ? (
-                          // — Edit mode —
                           <div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
                               <input
@@ -376,7 +483,6 @@ export default function AdminDashboard() {
                             </div>
                           </div>
                         ) : (
-                          // — Display mode —
                           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                             <div style={{ flex: 1 }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -458,20 +564,210 @@ export default function AdminDashboard() {
                   Customers
                 </h2>
 
-                <input
-                  placeholder="Search customers..."
-                  value={customerSearch}
-                  onChange={e => { setCustomerSearch(e.target.value); loadCustomers(e.target.value) }}
-                  style={{
-                    ...inputStyle,
-                    width: '100%',
-                    boxSizing: 'border-box' as const,
+                {/* CSV Upload */}
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '16px',
+                  border: '0.5px solid #e4e4e7',
+                  padding: '24px',
+                  marginBottom: '24px',
+                }}>
+                  <p style={{ fontWeight: '700', color: '#18181b', marginBottom: '8px' }}>Import Customers via CSV</p>
+
+                  {/* Last import info */}
+                  {lastImport && (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 14px',
+                      background: '#f4f4f5',
+                      borderRadius: '8px',
+                      marginBottom: '14px',
+                      fontSize: '0.85rem',
+                    }}>
+                      <span style={{ color: '#71717a' }}>Last import:</span>
+                      <span style={{ color: '#18181b', fontWeight: '700' }}>{lastImport.filename}</span>
+                      <span style={{ color: '#a1a1aa' }}>·</span>
+                      <span style={{ color: '#71717a' }}>{lastImport.count} customers</span>
+                      <span style={{ color: '#a1a1aa' }}>·</span>
+                      <span style={{ color: '#71717a' }}>
+                        {new Date(lastImport.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </span>
+                    </div>
+                  )}
+
+                  <div style={{
+                    background: '#f4f4f5',
+                    borderRadius: '10px',
+                    padding: '14px 18px',
                     marginBottom: '16px',
-                    padding: '14px 20px',
-                    fontSize: '1rem',
-                    borderRadius: '12px',
-                  }}
-                />
+                  }}>
+                    <p style={{ color: '#71717a', fontSize: '0.85rem', margin: '0 0 6px', fontWeight: '600' }}>
+                      Your CSV must use these exact column headers:
+                    </p>
+                    <code style={{ color: '#18181b', fontSize: '0.85rem', fontWeight: '700' }}>
+                      first_name, last_name, phone, email
+                    </code>
+                    <p style={{ color: '#a1a1aa', fontSize: '0.8rem', margin: '8px 0 0' }}>
+                      ⚠️ Uploading replaces all current customers for this shop. Email is optional — all other columns are required.
+                    </p>
+                  </div>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv"
+                    onChange={handleCsvFile}
+                    style={{ fontSize: '0.9rem', color: '#18181b', marginBottom: '12px', display: 'block' }}
+                  />
+
+                  {csvError && (
+                    <div style={{
+                      padding: '12px 16px',
+                      background: '#fef2f2',
+                      borderRadius: '8px',
+                      color: '#b91c1c',
+                      fontSize: '0.85rem',
+                      fontWeight: '600',
+                      marginBottom: '12px',
+                    }}>
+                      ✕ {csvError}
+                    </div>
+                  )}
+
+                  {csvSuccess && (
+                    <div style={{
+                      padding: '12px 16px',
+                      background: '#dcfce7',
+                      borderRadius: '8px',
+                      color: '#166534',
+                      fontSize: '0.85rem',
+                      fontWeight: '700',
+                      marginBottom: '12px',
+                    }}>
+                      ✓ Customers imported successfully
+                    </div>
+                  )}
+
+                  {csvPreview.length > 0 && (
+                    <div>
+                      <p style={{ color: '#18181b', fontWeight: '700', fontSize: '0.9rem', marginBottom: '10px' }}>
+                        Preview — {csvPreview.length} customers found
+                      </p>
+                      <div style={{
+                        border: '0.5px solid #e4e4e7',
+                        borderRadius: '10px',
+                        overflow: 'hidden',
+                        marginBottom: '14px',
+                        maxHeight: '220px',
+                        overflowY: 'auto',
+                      }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                          <thead>
+                            <tr style={{ background: '#f4f4f5' }}>
+                              {['First Name', 'Last Name', 'Phone', 'Email'].map(h => (
+                                <th key={h} style={{
+                                  padding: '8px 12px',
+                                  textAlign: 'left',
+                                  color: '#71717a',
+                                  fontWeight: '700',
+                                  borderBottom: '0.5px solid #e4e4e7',
+                                }}>
+                                  {h}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {csvPreview.slice(0, 10).map((row, i) => (
+                              <tr key={i} style={{ borderBottom: '0.5px solid #f4f4f5' }}>
+                                <td style={{ padding: '8px 12px', color: '#18181b' }}>{row.first_name}</td>
+                                <td style={{ padding: '8px 12px', color: '#18181b' }}>{row.last_name}</td>
+                                <td style={{ padding: '8px 12px', color: '#18181b' }}>{row.phone}</td>
+                                <td style={{ padding: '8px 12px', color: '#71717a' }}>{row.email || '—'}</td>
+                              </tr>
+                            ))}
+                            {csvPreview.length > 10 && (
+                              <tr>
+                                <td colSpan={4} style={{ padding: '8px 12px', color: '#a1a1aa', fontStyle: 'italic' }}>
+                                  ...and {csvPreview.length - 10} more
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          onClick={importCsv}
+                          disabled={csvImporting}
+                          style={{
+                            padding: '10px 24px',
+                            borderRadius: '8px',
+                            background: csvImporting ? '#a1a1aa' : '#e03b1f',
+                            color: 'white',
+                            border: 'none',
+                            fontWeight: '700',
+                            fontSize: '0.9rem',
+                            cursor: csvImporting ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          {csvImporting ? 'Importing...' : `Import ${csvPreview.length} Customers`}
+                        </button>
+                        <button
+                          onClick={cancelCsv}
+                          style={{
+                            padding: '10px 24px',
+                            borderRadius: '8px',
+                            background: 'none',
+                            border: '0.5px solid #e4e4e7',
+                            color: '#71717a',
+                            fontWeight: '600',
+                            fontSize: '0.9rem',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Search */}
+                <div style={{ position: 'relative', marginBottom: '12px' }}>
+                  <input
+                    placeholder="Search customers by name or phone..."
+                    value={customerSearch}
+                    onChange={e => { setCustomerSearch(e.target.value); loadCustomers(e.target.value) }}
+                    style={{
+                      ...inputStyle,
+                      width: '100%',
+                      boxSizing: 'border-box' as const,
+                      padding: '14px 20px',
+                      fontSize: '1rem',
+                      borderRadius: '12px',
+                    }}
+                  />
+                  {customerSearching && (
+                    <span style={{ position: 'absolute', right: '16px', top: '50%', transform: 'translateY(-50%)', color: '#a1a1aa', fontSize: '0.85rem' }}>
+                      Searching...
+                    </span>
+                  )}
+                </div>
+
+                {customerSearch.length >= 2 && (
+                  <p style={{ color: '#a1a1aa', fontSize: '0.85rem', marginBottom: '12px' }}>
+                    {customers.length} result{customers.length !== 1 ? 's' : ''}
+                  </p>
+                )}
+
+                {customerSearch.length >= 2 && customers.length === 0 && !customerSearching && (
+                  <p style={{ color: '#a1a1aa', fontSize: '0.95rem', textAlign: 'center', marginTop: '32px' }}>
+                    No customers found
+                  </p>
+                )}
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {customers.map(c => (
@@ -481,11 +777,9 @@ export default function AdminDashboard() {
                         background: '#ffffff',
                         borderRadius: '12px',
                         border: '0.5px solid #e4e4e7',
-                        padding: '16px 20px',
+                        padding: '14px 20px',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '16px',
-                        opacity: c.is_active ? 1 : 0.5,
                       }}
                     >
                       <div style={{ flex: 1 }}>
@@ -493,27 +787,9 @@ export default function AdminDashboard() {
                           {c.first_name} {c.last_name}
                         </span>
                         <div style={{ color: '#71717a', fontSize: '0.85rem', marginTop: '2px' }}>
-                          {c.phone} {c.email ? `· ${c.email}` : ''}
+                          {c.phone}{c.email ? ` · ${c.email}` : ''}
                         </div>
                       </div>
-                      {c.tekmetric_id && (
-                        <span style={{ color: '#a1a1aa', fontSize: '0.8rem' }}>#{c.tekmetric_id}</span>
-                      )}
-                      <button
-                        onClick={() => toggleCustomer(c.id, !c.is_active)}
-                        style={{
-                          padding: '6px 14px',
-                          borderRadius: '8px',
-                          border: '0.5px solid #e4e4e7',
-                          background: 'none',
-                          color: c.is_active ? '#71717a' : '#16a34a',
-                          fontSize: '0.85rem',
-                          fontWeight: '600',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {c.is_active ? 'Deactivate' : 'Activate'}
-                      </button>
                     </div>
                   ))}
                 </div>
