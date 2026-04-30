@@ -23,7 +23,7 @@ export default function LoginPage() {
     if (role === 'kiosk') router.push('/kiosk')
     else if (role === 'staff') router.push('/staff/dashboard')
     else if (role === 'admin') router.push('/admin/dashboard')
-    else if (role === 'superadmin') router.push('/admin/dashboard')
+    else if (role === 'superadmin') router.push('/superadmin/dashboard')
   }
 
   const handleLogin = async () => {
