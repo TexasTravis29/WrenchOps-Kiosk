@@ -19,21 +19,38 @@ export default function ReturningCustomer() {
   const [selected, setSelected] = useState<Customer | null>(null)
 
   useEffect(() => {
-    if (search.length < 2) {
+    const trimmed = search.trim()
+    if (trimmed.length < 2) {
       setResults([])
       return
     }
+
     const timeout = setTimeout(async () => {
       setLoading(true)
-      const { data } = await supabase
+
+      const parts = trimmed.split(/\s+/)
+      let query = supabase
         .from('customers')
         .select('id, first_name, last_name, phone, email')
-        .or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,phone.ilike.%${search}%`)
         .eq('is_active', true)
-        .limit(8)
+
+      if (parts.length >= 2) {
+        // "Anthony Smith" — match first + last together (AND logic = much narrower)
+        query = query
+          .ilike('first_name', `%${parts[0]}%`)
+          .ilike('last_name', `%${parts[parts.length - 1]}%`)
+      } else {
+        // Single word — match first name, last name, or phone
+        query = query.or(
+          `first_name.ilike.%${trimmed}%,last_name.ilike.%${trimmed}%,phone.ilike.%${trimmed}%`
+        )
+      }
+
+      const { data } = await query.limit(25)
       setResults(data || [])
       setLoading(false)
     }, 300)
+
     return () => clearTimeout(timeout)
   }, [search])
 
@@ -68,11 +85,11 @@ export default function ReturningCustomer() {
         Search by name or phone number
       </p>
 
-      <div style={{ width: '100%', maxWidth: '560px', position: 'relative' }}>
+      <div style={{ width: '100%', maxWidth: '560px' }}>
         <input
           autoFocus
           type="text"
-          placeholder="Start typing your name or phone..."
+          placeholder="First name, last name, or phone..."
           value={search}
           onChange={e => { setSearch(e.target.value); setSelected(null) }}
           style={{
@@ -94,19 +111,29 @@ export default function ReturningCustomer() {
           </div>
         )}
 
+        {/* Scrollable results list */}
         {results.length > 0 && (
           <div style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
+            marginTop: '8px',
             background: '#ffffff',
             border: '0.5px solid #e4e4e7',
             borderRadius: '16px',
-            marginTop: '8px',
             overflow: 'hidden',
-            zIndex: 10,
+            maxHeight: '340px',
+            overflowY: 'auto',
           }}>
+            {results.length > 4 && (
+              <div style={{
+                padding: '10px 24px',
+                background: '#f4f4f5',
+                borderBottom: '0.5px solid #e4e4e7',
+                fontSize: '0.85rem',
+                color: '#71717a',
+                textAlign: 'center',
+              }}>
+                {results.length} results — try adding a last name to narrow down
+              </div>
+            )}
             {results.map((c, i) => (
               <button
                 key={c.id}
@@ -135,7 +162,7 @@ export default function ReturningCustomer() {
           </div>
         )}
 
-        {search.length >= 2 && !loading && results.length === 0 && !selected && (
+        {search.trim().length >= 2 && !loading && results.length === 0 && !selected && (
           <div style={{
             marginTop: '16px',
             padding: '20px',
