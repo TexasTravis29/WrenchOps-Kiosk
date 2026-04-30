@@ -1,8 +1,8 @@
 'use client'
 import { useRouter } from 'next/navigation'
-import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { getSession, clearSession } from '../../../lib/auth'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 type Checkin = {
   id: string
@@ -17,10 +17,10 @@ type Checkin = {
 }
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
-  pending:    { bg: '#fef9c3', color: '#854d0e' },
-  in_progress:{ bg: '#dbeafe', color: '#1e40af' },
-  ready:      { bg: '#dcfce7', color: '#166534' },
-  complete:   { bg: '#f4f4f5', color: '#71717a' },
+  pending: { bg: '#fef9c3', color: '#854d0e' },
+  in_progress: { bg: '#dbeafe', color: '#1e40af' },
+  ready: { bg: '#dcfce7', color: '#166534' },
+  complete: { bg: '#f4f4f5', color: '#71717a' },
 }
 
 export default function StaffDashboard() {
@@ -30,6 +30,37 @@ export default function StaffDashboard() {
   const [filter, setFilter] = useState('all')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [notes, setNotes] = useState<Record<string, string>>({})
+
+  const knownIdsRef = useRef<Set<string>>(new Set())
+  const isFirstLoadRef = useRef(true)
+
+  const playChaChing = () => {
+    try {
+      const ctx = new AudioContext()
+
+      const playTone = (freq: number, start: number, duration: number, gain: number) => {
+        const osc = ctx.createOscillator()
+        const gainNode = ctx.createGain()
+        osc.connect(gainNode)
+        gainNode.connect(ctx.destination)
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + start)
+        gainNode.gain.setValueAtTime(0, ctx.currentTime + start)
+        gainNode.gain.linearRampToValueAtTime(gain, ctx.currentTime + start + 0.01)
+        gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + duration)
+        osc.start(ctx.currentTime + start)
+        osc.stop(ctx.currentTime + start + duration)
+      }
+
+      // Cha — lower strike
+      playTone(987, 0, 0.18, 0.4)
+      playTone(1318, 0, 0.18, 0.3)
+      // Ching — higher ring
+      playTone(1760, 0.12, 0.5, 0.35)
+      playTone(2093, 0.12, 0.5, 0.25)
+    } catch (e) {
+      // AudioContext blocked (no user interaction yet) — silent fail
+    }
+  }
 
   const load = useCallback(async () => {
     let query = supabase
@@ -41,16 +72,33 @@ export default function StaffDashboard() {
     if (filter !== 'all') query = query.eq('status', filter)
 
     const { data } = await query
-    setCheckins(data || [])
+    const fetched = data || []
+
+    // Detect new pending checkins after first load
+    if (isFirstLoadRef.current) {
+      fetched.forEach(c => knownIdsRef.current.add(c.id))
+      isFirstLoadRef.current = false
+    } else {
+      let hasNew = false
+      fetched.forEach(c => {
+        if (c.status === 'pending' && !knownIdsRef.current.has(c.id)) {
+          hasNew = true
+        }
+        knownIdsRef.current.add(c.id)
+      })
+      if (hasNew) playChaChing()
+    }
+
+    setCheckins(fetched)
     setLoading(false)
   }, [filter])
 
   useEffect(() => {
     const session = getSession()
-        if (!session || session.role !== 'staff') {
-            router.push('/')
-        return
-}
+    if (!session || session.role !== 'staff') {
+      router.push('/')
+      return
+    }
     load()
     const interval = setInterval(load, 30000)
     return () => clearInterval(interval)
