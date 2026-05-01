@@ -14,9 +14,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     const session = getSession()
-    if (session) {
-      routeByRole(session.role)
-    }
+    if (session) routeByRole(session.role)
   }, [])
 
   const routeByRole = (role: string) => {
@@ -30,7 +28,6 @@ export default function LoginPage() {
     if (!username.trim() || !password.trim()) return
     setLoading(true)
     setError('')
-
     const user = await login(username, password)
     if (!user) {
       setError('Incorrect username or password')
@@ -38,7 +35,6 @@ export default function LoginPage() {
       setLoading(false)
       return
     }
-
     saveSession(user)
     routeByRole(user.role)
   }
@@ -83,11 +79,11 @@ export default function LoginPage() {
             padding: '18px 20px',
             fontSize: '1.1rem',
             borderRadius: '12px',
-            border: '0.5px solid #e4e4e7',
+            border: error ? '1.5px solid #e03b1f' : '0.5px solid #e4e4e7',
             background: '#ffffff',
             color: '#18181b',
             outline: 'none',
-            boxSizing: 'border-box' as const,
+            boxSizing: 'border-box',
             marginBottom: '12px',
           }}
         />
@@ -106,12 +102,13 @@ export default function LoginPage() {
             background: '#ffffff',
             color: '#18181b',
             outline: 'none',
-            boxSizing: 'border-box' as const,
+            boxSizing: 'border-box',
             marginBottom: '8px',
           }}
         />
+
         {error && (
-          <p style={{ color: '#e03b1f', fontSize: '0.9rem', marginBottom: '8px' }}>{error}</p>
+          <p style={{ color: '#e03b1f', fontSize: '0.9rem', marginBottom: '16px' }}>{error}</p>
         )}
 
         <button
@@ -124,28 +121,36 @@ export default function LoginPage() {
             width: '100%',
             padding: '18px',
             borderRadius: '12px',
-            background: loading ? '#e4e4e7' : pressed ? '#c42d0f' : '#e03b1f',
-            color: loading ? '#a1a1aa' : 'white',
+            background: pressed ? '#c42d0f' : '#e03b1f',
+            color: 'white',
             border: 'none',
             fontSize: '1.1rem',
             fontWeight: '800',
             cursor: loading ? 'not-allowed' : 'pointer',
             transform: pressed ? 'scale(0.98)' : 'scale(1)',
             transition: 'all 0.1s ease',
+            opacity: loading ? 0.7 : 1,
+            marginBottom: '24px',
           }}
         >
           {loading ? 'Signing in...' : 'Sign In'}
         </button>
-      </div>
 
-      <p style={{
-        position: 'absolute',
-        bottom: '24px',
-        fontSize: '0.85rem',
-        color: '#a1a1aa',
-      }}>
-        Powered by WrenchOps
-      </p>
+        {/* Signup link */}
+        <p style={{ textAlign: 'center', color: '#71717a', fontSize: '0.95rem', margin: 0 }}>
+          Don't have an account?{' '}
+          <a
+            href="/signup"
+            style={{
+              color: '#e03b1f',
+              fontWeight: '700',
+              textDecoration: 'none',
+            }}
+          >
+            Get started now!
+          </a>
+        </p>
+      </div>
     </div>
   )
 }
